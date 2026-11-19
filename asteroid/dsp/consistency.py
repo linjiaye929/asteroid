@@ -14,7 +14,8 @@ def mixture_consistency(
         mixture (torch.Tensor): Mixture waveform or TF representation.
         est_sources (torch.Tensor): Estimated sources waveforms or TF representations.
         src_weights (torch.Tensor): Consistency weight for each source.
-            Shape needs to be broadcastable to `est_source`.
+            Shape needs to be broadcastable to `est_sources`, for example
+            `(n_src, 1)` for waveform estimates of shape `(batch, n_src, time)`.
             We make sure that the weights sum up to 1 along dim `dim`.
             If `src_weights` is None, compute them based on relative power.
         dim (int): Axis which contains the sources in `est_sources`.
@@ -49,9 +50,15 @@ def mixture_consistency(
         all_dims.pop(dim)  # Remove source axis
         all_dims.pop(0)  # Remove batch axis
         src_weights = torch.mean(est_sources**2, dim=all_dims, keepdim=True)
-    # Make sure that the weights sum up to 1
-    norm_weights = torch.sum(src_weights, dim=dim, keepdim=True) + 1e-8
-    src_weights = src_weights / norm_weights
+    else:
+        # Broadcasting aligns trailing axes, while dim refers to est_sources.
+        while src_weights.ndim < est_sources.ndim:
+            src_weights = src_weights.unsqueeze(0)
+    weight_sum = torch.sum(src_weights, dim=dim, keepdim=True)
+    if src_weights.size(dim) == 1:
+        # A shared weight counts once per source, without expanding over time.
+        weight_sum = weight_sum * est_sources.size(dim)
+    src_weights = src_weights / (weight_sum + 1e-8)
 
     # Compute residual mix - sum(est_sources)
     if mixture.ndim == est_sources.ndim - 1:

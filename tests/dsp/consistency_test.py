@@ -38,3 +38,32 @@ def test_consistency_raise():
     est = torch.randn(10, 2, 160)
     with pytest.raises(RuntimeError):
         mixture_consistency(mix, est, dim=1)
+
+
+@pytest.mark.parametrize(
+    "shape,dim,weight_shape",
+    [
+        ((2, 3, 5), 1, (3, 1)),  # source weights shared across the batch
+        ((2, 3, 5), 1, (5,)),  # time-varying weights shared by all sources
+        ((2, 3, 5), 1, ()),  # scalar
+        ((2, 3, 5), 1, (1, 1, 1)),  # explicit singleton source axis
+        ((2, 5, 3), -1, (3,)),  # source axis last
+    ],
+)
+def test_broadcast_weights_match_explicit_weights(shape, dim, weight_shape):
+    estimates = torch.arange(torch.tensor(shape).prod(), dtype=torch.float64).reshape(shape)
+    mixture = torch.ones_like(estimates.sum(dim))
+    weights = torch.ones(weight_shape, dtype=estimates.dtype)
+    weights = weights.flatten().cumsum(0).reshape(weight_shape)
+    actual = mixture_consistency(mixture, estimates, weights, dim=dim)
+    expected = mixture_consistency(mixture, estimates, weights.expand_as(estimates), dim=dim)
+    assert_close(actual, expected)
+
+
+def test_shared_integer_weight_matches_explicit_weights():
+    estimates = torch.zeros(2, 3, 5)
+    mixture = torch.ones(2, 5)
+    shared = torch.tensor(100, dtype=torch.int8)
+    actual = mixture_consistency(mixture, estimates, shared)
+    expected = mixture_consistency(mixture, estimates, shared.expand_as(estimates))
+    assert_close(actual, expected)
